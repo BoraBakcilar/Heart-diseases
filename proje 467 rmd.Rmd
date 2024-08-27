@@ -1,0 +1,687 @@
+---
+title: "project"
+author: "Bora Bakçılar 2290534, Aylin Çelik 2361194"
+date: "2023-12-30"
+output: html_document
+---
+
+```{r libs, message=FALSE, warning=FALSE, include=FALSE}
+if (!require("MASS")) {install.packages("MASS")} ;library(MASS)
+if (!require("dbplyr")) {install.packages("dbplyr")} ;library(dbplyr)
+if (!require("readr")) {install.packages("readr")} ;library(readr)
+if (!require("AID")) {install.packages("AID")} ;library(AID)
+if (!require("Matrix")) {install.packages("Matrix")} ;library(Matrix)
+if (!require("geometry")) {install.packages("geometry")} ;library(geometry)
+if (!require("corrplot")) {install.packages("corrplot")} ; library(corrplot)
+if (!require("expm")) {install.packages("expm")} ; library(expm)
+if (!require("MVA")) {install.packages("MVA")} ; library(MVA)
+if (!require("ggplot2")) {install.packages("ggplot2")} ; library(ggplot2)
+if (!require("psych")) {install.packages("psych")} ; library(psych)
+if (!require("MVN")) {install.packages("MVN")} ; library(MVN)
+if (!require("tidyverse")) {install.packages("tidyverse")} ; library(tidyverse)
+if (!require("factoextra")) {install.packages("factoextra")} ; library(factoextra)
+if (!require("car")) {install.packages("car")} ; library(car)
+if (!require("mlbench")) {install.packages("mlbench")} ; library(mlbench)
+if (!require("klaR")) {install.packages("klaR")} ; library(klaR)
+
+options(repos = c(
+    fawda123 = 'https://fawda123.r-universe.dev',
+    CRAN = 'https://cloud.r-project.org'))
+
+
+if (!require("ggord")) {install.packages("ggord")} ; library(ggord)
+
+
+```
+
+```{r importing}
+install.packages("readr")
+install.packages("rlang")
+data <- read_csv("Desktop/STAT467/project/hearth data/heart.csv")
+data <- heart
+library(rlang)
+library(readr)
+
+
+
+head(data)
+summary(data)
+str(data)
+typeof(data)
+```
+
+Özellik kontrolü ve normallik bakımı
+
+```{r include=FALSE}
+data$sex <- factor(data$sex, levels = unique(data$sex))
+data$caa <-  factor(data$caa, levels = unique(data$caa))
+data$cp <-factor(data$cp, levels = unique(data$cp))
+data$fbs <- factor(data$fbs, levels =  unique(data$fbs))
+data$exng <- factor(data$exng,levels = unique(data$exng))
+data$slp <- factor(data$slp, levels = unique(data$slp))
+data$thall <- factor(data$thall, levels= unique(data$thall))
+data$output <- factor(data$output, levels= unique(data$output))
+data$restecg <- factor(data$restecg, levels= unique(data$restecg))
+
+
+summary(data)
+
+# numeric ve numeric olmayan datacik setlerimiz var Åimdik en baÅta numeric deÄerimizde NA kontrolÃ¼ yapalÄ±m 
+
+colSums(is.na(data))
+
+# orjinal datamÄ±za dokunmamak iÃ§in yeni bir dataframe oluÅuralÄ±m 
+data_copy <- as.data.frame(data)
+
+library(dplyr)
+numeric_data <- data %>% select_if(is.numeric)
+str(numeric_data)
+
+numeric_data_copy <- numeric_data
+
+# For shapiro and boxconx we have to kick 0 var columns 
+zero_var_columns <- colnames(numeric_data)[apply(numeric_data, 2, var) == 0]
+# We have 2 zero variance columns. We can not apply normalize procsses of theese columns so we have to drop these columns from "numeric_data" 
+print(zero_var_columns)
+# 0 
+
+
+mvn_output <- MVN::mvn(data = numeric_data, mvnTest = "royston", scale = TRUE, univariateTest = "SW")
+unique(mvn_output$univariateNormality$Normality)
+# As we see sclae fonksiyonu ile scale etsekte shapiro ile test ettimizde normal dağılmıyor
+# Univariate and multivariate normality we dont have lets try to some way to normalize it 
+
+
+# Lets apply the scale function to easly apply
+scaled_data <- matrix(0, nrow = nrow(numeric_data), ncol = ncol(numeric_data))
+colnames(scaled_data ) <- colnames(numeric_data)
+scaled_data <- scale(numeric_data)
+
+
+# Buraya kadar bÃ¼tÃ¼n datacikize baktÄ±k ve datacikiz hakkÄ±nda genel bir gÃ¶zlem bilgisi edindik. 
+
+
+
+colSums(is.na(scaled_data))
+scaled_data <- as.data.frame(scaled_data)
+  
+# OutlierlarÄ± Z tablosuna gÃ¶re 3 varyans ve fazlasÄ± olanlarÄ± Ã§Ä±karttÄ±k 
+remove_outliers <- function(x) {
+  if (length(x) <= 2) {
+    return(rep(NA, length(x)))
+  } else {
+    mean_val <- mean(x, na.rm = TRUE)
+    sd_val <- sd(x, na.rm = TRUE)
+    threshold <- 3 * sd_val
+    return(ifelse(abs(x - mean_val) <= threshold, x, NA))
+  }
+}
+
+data_wo0v_woO <- numeric_data
+for (i in colnames(scaled_data)) {
+  outliers_removed <- remove_outliers(scaled_data[[i]])
+  
+  # AyÄ±klanan satÄ±rlarÄ± genel datacikde Na yap
+  remove <- which(is.na(outliers_removed))
+  data_wo0v_woO[remove, ] <- NA
+}
+
+numeric_data_wo_outlier <- numeric_data[complete.cases(data_wo0v_woO), ]
+
+
+```
+
+### Interquartile incelemesi 0 olan varmı diye bakıyoruz
+
+```{r}
+# Calculate the IQR for each column
+iqr_values <- apply(numeric_data_wo_outlier, 2, IQR)
+
+# Identify columns with an IQR of 0
+zero_iqr_cols <- names(iqr_values[iqr_values == 0])
+
+# Print columns with zero variability
+print(zero_iqr_cols)
+
+# Remove these columns from the dataset
+numeric_data_wo_outlier <- numeric_data_wo_outlier %>% select(-all_of(zero_iqr_cols))
+
+# Re-run the outlier detection
+outlie <- MVN::mvn(numeric_data_wo_outlier, multivariateOutlierMethod = "adj", mvnTest = "royston", scale = TRUE)
+
+```
+
+### Univariate & Bivariate & Multivariate normality check
+
+```{r}
+# Örnek dataframe'leri içeren bir liste (all_data) varsayalım.
+# Bu liste her bir dataframe'i içeriyor.
+all_data <- list(numeric_data,numeric_data_wo_outlier,scaled_data)
+# Sonuçları depolamak için bir datacik çerçevesi oluşturalım
+result_df <- data.frame(Dataframe = character(0), Column1 = character(0), Column2 = character(0), p_value = numeric(0))
+
+# Her bir dataframe için döngü
+for (i in 1:length(all_data)) {
+  # Dataframe'i seçelim
+  df <- all_data[[i]]
+  
+  # Sütunlar arasındaki bivariate normality testi için iç içe bir döngü
+  for (a in 1:(ncol(df) - 1)) {
+    for (b in (a + 1):ncol(df)) {
+      # İlgili sütunları seçelim
+      col1 <- df[, a]
+      col2 <- df[, b]
+      
+      # Bivariate normality testini yapalım (örneğin, MVN::mvn kullanabilirsiniz)
+      mvn_result <- tryCatch({
+        MVN::mvn(data = data.frame(col1, col2), mvnTest = "royston", univariateTest = "SW")
+      }, error = function(e) {
+        message("Error with MVN test for Dataframe ", i, ", Columns ", a, " and ", b, ": ", e$message)
+        return(NULL)
+      })
+      
+      # Sonucu result_df'ye ekleyelim
+      if (!is.null(mvn_result) && !is.null(mvn_result$multivariateNormality)) {
+        result_df <- rbind(result_df, data.frame(Dataframe = paste("Dataframe", i), Column1 = names(df)[a], Column2 = names(df)[b], p_value = mvn_result$multivariateNormality[,"p value"]))
+      }
+    }
+  }
+}
+
+# Sonuçları görüntüleyelim
+print(result_df)
+unique(result_df$p_value)
+# No normal 
+```
+
+```{r}
+
+
+# Q-Q Plotlar için
+par(mfrow=c(5, 5)) # 5x5 grid düzeni
+
+for(i in 1:5) {
+  qqnorm(numeric_data[[i]], main=paste("Q-Q Plot:", names(numeric_data)[i]))
+  qqline(numeric_data[[i]])
+}
+# We assume all is normal 
+
+korelasyon_matrisi <- cor(numeric_data)
+
+#Korelasyon matrisini göster
+print("Korelasyon Matrisi:")
+print(korelasyon_matrisi)
+
+
+
+```
+
+## EDA
+```{r}
+
+# Lest cont with normlaity check for outlierlı data 
+
+
+for(i in 1:length(colnames(numeric_data))) {
+  qqnorm(numeric_data[[i]], main=paste("Q-Q Plot:", names(numeric_data)[i]))
+  qqline(numeric_data[[i]])
+}
+
+```
+
+
+
+```{r}
+# sütunlar normal dağılyor var sayıyoruz outlierımız çok yok ondan devam edebilrizi normal veri ile 
+
+# Gendera bağlı kolestrol bakabiliriz 
+data <- heart
+data$sex[data$sex == "1"] <- "Male"
+data$sex[data$sex == "0"] <- "Female"
+
+ggplot(data = data, aes(x = sex, y = chol, fill = sex)) +
+  geom_boxplot() +
+  labs(title = "Cinsiyete Göre Kolsetrol Dağılımı",
+       x = "Gender",
+       y = "Kolsetrol") 
+
+# Hasta olup olmamaya bağlı 
+data$output[data$output == "1"] <- "Hasta"
+data$output[data$output == "0"] <- "sağlıklı"
+
+
+
+ggplot(data, aes(x = output, y = chol, fill = output)) +
+  geom_boxplot() +
+  labs(title = "Cinsiyete Göre Kolsetrol Dağılımı",
+       x = "Cinsiyet",
+       y = "Kolsetrol") 
+
+
+
+# Hasta olup olmamasına bagli box_plot
+ggplot(data, aes(x = sex, y = chol, fill = output)) +
+  geom_boxplot() +
+  labs(title = "Cinsiyete Göre Kolsetrol Dağılımı",
+       x = "Cinsiyet",
+       y = "Kolsetrol") 
+
+
+# Age ve chol
+lineer_model <- lm(chol ~ age, data = data)
+
+ggplot(data, aes(x = age, y = chol)) +
+  geom_point() +
+  geom_abline(intercept = coef(lineer_model)[1], slope = coef(lineer_model)[2], col = "red", lty = 2) +
+  labs(title = "Yaş ve Kolsetrol İlişkisi",
+       x = "Yaş",
+       y = "Kolsetrol") +
+  theme_minimal()
+
+# Egzersiz ve kolestrol bakalım 
+
+data$exng[data$exng == "1"] <- "Excercise"
+data$exng[data$exng == "0"] <- "not"
+
+ggplot(data, aes(x = exng, y = chol, fill = exng)) +
+  geom_boxplot() +
+  labs(title = "egzersize göre kolsetrol",
+       x = "egzersize göre",
+       y = "Kolsetrol") 
+
+# Egzersize göre kan basıncı
+
+ggplot(data, aes(x = exng, y = trtbps, fill = exng)) +
+  geom_boxplot() +
+  labs(title = "egzersize göre kan basıncı",
+       x = "egzersize göre",
+       y = "kan basıncı") 
+
+
+# Grafiklerden bazı çıkarımlar yapabiliriz ve bunları test edebilriiz şimdilik bu kadar görsel yeterli 
+
+
+# Maksimum kalp atış hızı ile egzersiz ortalamayı etkiliyor mu 
+ggplot(data, aes(x = exng, y = thalachh, fill = exng)) +
+  geom_boxplot() +
+  labs(title = "egzersize göre kan basıncı",
+       x = "egzersize göre",
+       y = "kan basıncı") 
+
+# Kan basıncına göre şeker 
+data$fbs <- as.factor(data$fbs)
+ggplot(data, aes(x = fbs, y = trtbps, fill = fbs)) +
+  geom_boxplot() +
+  labs(title = "egzersize göre kan basıncı",
+       x = "egzersize göre",
+       y = "kan basıncı") 
+# As we see there are no big difference about mean some of patiance migth be outlier? and they can make noise in this plot. we will test it with anova 
+
+
+
+
+```
+
+## EDA and others
+
+```{r}
+# Lets cont with EDA and eigenvalues and vectors
+
+
+
+cor_mat_wo_outlier <- as_data_frame(cor(numeric_data_wo_outlier))
+# Creating a covariance matrix from scaled_data
+cor_mat <- cor(numeric_data)
+
+# Printing the covariance matrix
+print(cor_mat)
+
+# OutlierlÄ±
+eigen_mat <- eigen(cor_mat)
+eigenvalues <- eigen_mat$values
+eigenvectors <- eigen_mat$vectors
+
+# OutliersÄ±z
+eigen_mat_wo <- eigen(cor_mat_wo_outlier)
+eigenvalues_wo <- eigen_mat_wo$values
+eigenvectors_wo <- eigen_mat_wo$vectors
+
+#Summary
+summary(data)
+
+
+
+
+pairs.panels(numeric_data,method = "spearman",
+             hist.col = "orange",  # histogram renkleri
+             density = TRUE, 
+             ellipses = TRUE, 
+             cex.labels = 1.2,
+             main = "Scatterplot of Correlation Matrix")
+cor_mat-cor_mat_wo_outlier
+
+
+
+pairs.panels(numeric_data_wo_outlier,method = "spearman",
+             hist.col = "orange",  # histogram renkleri
+             density = TRUE, 
+             ellipses = TRUE, 
+             cex.labels = 1.2,
+             main = "Scatterplot of Correlation Matrix Without Outliers")
+
+```
+
+# 2.2
+
+```{r Anova}
+
+
+
+# Gender ve kolestrol ortalamasını etkiliyor mu?
+anova_result <- aov(chol ~ sex , data = data)
+
+summary(anova_result)
+
+# P value < 0.05:  etkiliyor 
+
+
+
+# kolestrol ile egzersiz yapıp yapmama arasında ortalama farkı var mı?
+anova_result <- aov(chol ~ exng, data = data)
+summary(anova_result)
+# P value > 0.05:  hayır etkilemiyor 
+
+anova_result_trtbs <- aov(trtbps ~ fbs , data = data)
+summary(anova_result_trtbs)
+ # No relation ship 
+```
+
+## 2.3
+
+```{r Manova}
+# Manova sorusu hasta olanların olmayanlara göre ortalamalarına bakalım 
+
+manova_model <- manova(cbind(chol, oldpeak, trtbps) ~ output, data = data)
+
+summary(manova_model)
+# Hastalıklı ile hastalıksız arasında bu değerlerin ortalamalarına göre bir fark yok  MANOVA sonucu
+
+
+manova_model2 <- manova(cbind(chol, trtbps) ~ fbs, data = data)
+summary(manova_model2)
+# There are a little bit to do not reject but our outlier sample too small (-9) so we dont need to test with that 
+
+
+```
+
+## 2.4
+
+### PCA
+
+```{r PCA}
+# PCA 
+
+res <- cor(numeric_data, method="pearson")
+corrplot::corrplot(res, method= "color", order = "hclust")
+
+numeric_data<-scale(numeric_data)
+numeric_data
+
+cov(numeric_data)
+# Oldpeak sütununa göre pca yapıyoruz 
+numeric_data1<-numeric_data[,-5]
+pca1 <- prcomp(numeric_data1)
+summary(pca1)
+
+
+
+names(pca1)
+
+# Rotations
+pca1$rotation
+
+fviz_eig(pca1,addlabels=TRUE) #represent the proportion values
+ #  as we see we can reach at leat %87.2 explainibilty it is nice out put with limitted variable  but lets cont with 3 
+# We have to reduce the variable. (böyle anladım eksiltmemiz lazım diye)
+
+# We are cont with all of them 
+
+pca<-pca1$x[,1:3]
+head(pca)
+
+
+res1 <- cor(pca, method="pearson")
+corrplot::corrplot(res1, method= "color", order = "hclust")
+```
+
+```{r PCA}
+cor(numeric_data,pca)
+
+biplot(pca1, col = c("gray", "black"))
+
+fviz_pca_var(pca1, col.var = "contrib")
+
+# Buralara hep açıklamalar yapmalıyız recit10 da açıklamalar var 
+# Show the ones being the first three variable with high contribution
+
+
+fviz_pca_var(pca1, select.var = list(contrib = 3))
+# Show the ones being the first three variable with high contribution
+
+
+
+fviz_pca_ind(pca1, col.ind = "#00AFBB")
+# We can also observe the which components is good in the explanation of the cases.
+
+fviz_contrib(pca1, choice = "ind", axes = 1:2) + coord_flip()
+# you can also visualize the contribution of the individuals to the components. For example, you can see that Honda Civic has the highest contribution to the first two components.  hangi observation ençok etkiliyor onu görüyoruz 
+
+
+
+```
+
+### PCR
+
+```{r}
+ols.data <- data.frame(oldpeak =numeric_data[,5],pca)
+
+lmodel <- lm(oldpeak ~ ., data = ols.data)
+summary(lmodel)
+
+### Recitin bire bir aynıları 
+# As you see, the model is significant. Almost 98% of the variability of y can be explained by components. Also, we can say that the last component which has the highest variance explained is significant.
+
+# You can check the performance of the model in the data by the performance criteria such as MSE or RMSE.
+
+mean((ols.data$oldpeak - predict(lmodel))^2) #mse
+
+sqrt(mean((ols.data$oldpeak - predict(lmodel))^2)) # RMSE
+
+
+```
+
+## 2.5
+
+### Factor Analysis
+
+```{r}
+
+# Datayı burda tekrar ilk haline getirelim faktör şeysi için 
+
+data <- heart
+
+cm <- cor(data, method="pearson")
+corrplot::corrplot(cm, method= "number", order = "hclust")
+
+
+
+# faktör analizi için verimizden numericleri çıkartalım 
+
+data <- data[,-c(4,5,8,10)]
+
+cm <- cor(data, method="pearson")
+corrplot::corrplot(cm, method= "number", order = "hclust")
+
+
+#Since we have lots of variables the figure above is not a clear one, but still, we can observe that there are some correlated variables.
+
+# Now lets check the factorability of the variables in the dataset. First, lets create a new dataset by taking a subset of all the independent variables in the data and perform the Kaiser-Meyer-Olkin (KMO) Test.
+
+KMO(r=cm)
+
+print(cortest.bartlett(cm,nrow(data)))
+
+
+
+# The Kaiser-Meyer Olkin (KMO) and Bartletts Test measure of sampling adequacy were used to examine the appropriateness of Factor Analysis. The approximate of Chi-square is 17331.21 with 378 degrees of freedom, which is significant at 0.05 Level of significance. The KMO statistic of 0.84 is also large (greater than 0.50). Hence Factor Analysis is considered as an appropriate technique for further analysis of the data.
+
+# Then, we should decide number of factors and there are several way to do it. We can use visual ways or formal ways. Lets try both.
+
+
+parallel <- fa.parallel(data, fm = "minres", fa = "fa")
+
+
+factanal(data, factors = 2)$PVAL
+
+# p value 0.05 ten küçük olduğu için daha fazla faktör almalıyız 
+
+factanal(data, factors = 3)$PVAL
+
+# p value 0.05 ten minimum düzeyde geçiyor 3 faktör üstünden bu analizi yapmak yeterli olcaktır 
+
+f <-factanal(data, factors = 3)
+f
+
+
+##
+
+names(f$loadings[,1])[abs(f$loadings[,1])>0.4]
+
+# These 3 are our most powerfull factors 
+
+# Lets save that 
+f1 <- data[,names(f$loadings[,1])[abs(f$loadings[,1])>0.4]]
+
+
+summary(alpha(f1, check.keys=TRUE)) 
+# Raw alpha = 0.603  tutarlılık pek iyi değil başka faktörler eklesek daha iyi olabilir hadi deniyelim 
+
+
+factanal(data, factors = 4)$PVAL
+
+# 4 faktör baya güzel sonuç verdi hadi böyle devam edelim 
+ff <-factanal(data, factors = 4)
+ff
+
+names(ff$loadings[,1])[abs(f$loadings[,1])>0.3]
+
+f2 <- data[,names(f$loadings[,1])[abs(f$loadings[,1])>0.3]]
+summary(alpha(f2, check.keys=TRUE)) 
+# Raw alpha düştü 3 faktörden devam ediyoruz...
+
+
+
+
+```
+
+## 2.6
+
+#### Discriminant Analysis
+
+```{r}
+data <- heart
+data$output<-as.factor(data$output)
+
+numeric_data$output <- data$output
+
+GGally::ggpairs(numeric_data)
+
+GGally::ggpairs(numeric_data,  aes(color = output,  # Color by group (cat. variable)
+alpha = 0.5)) 
+
+
+```
+
+
+
+
+using 3 factor and numerics we will devolop outcome tahmin modeli (hasta hasta olmayan ayırt etme modeli)
+```{r}
+
+data$sex <- factor(data$sex, levels = unique(data$sex))
+data$caa <-  factor(data$caa, levels = unique(data$caa))
+data$cp <-factor(data$cp, levels = unique(data$cp))
+data$fbs <- factor(data$fbs, levels =  unique(data$fbs))
+data$exng <- factor(data$exng,levels = unique(data$exng))
+data$slp <- factor(data$slp, levels = unique(data$slp))
+data$thall <- factor(data$thall, levels= unique(data$thall))
+data$output <- factor(data$output, levels= unique(data$output))
+data$restecg <- factor(data$restecg, levels= unique(data$restecg))
+
+
+
+sample <- sample(c(TRUE, FALSE), nrow(data), replace=TRUE, prob=c(0.8,0.2))
+train <- data[sample, ]
+test <- data[!sample, ] 
+
+
+# Train ve test olarak datamızı böldük 
+
+model <- lda(output ~.,data = train)
+model
+
+plot(model)
+
+model.values <- predict(model)
+names(model.values)
+
+# Lets interest with performance of model 
+
+train_predict<- predict(model,train)$class
+table_train <- table(Predicted =train_predict, Actual = train$output)
+
+table_train
+
+sum(diag(table_train))/sum(table_train)
+# 0.88 skor modelin başarısını gösterir model %88 oranla başarılı sınıflandırma yapmakta
+
+test_predict<- predict(model,test)$class
+table_test<- table(Predicted =test_predict, Actual = test$output)
+table_test
+
+sum(diag(table_test))/sum(table_test)
+# Model test datasındada %84 uyum göstedi bu iyi bir başarı oranıdır. 
+
+
+```
+
+
+
+## 2.7 Clustering 
+
+```{r}
+# Verimize hiearşik bir sınıflandırmaya ihtiyacımız yok çünkü tam anlamıyla bir genetik verisi değil yada benzer özellikleri göstermiyor.
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
